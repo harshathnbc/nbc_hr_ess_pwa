@@ -13,9 +13,9 @@ export const metadata: Metadata = {
     title: 'NBC ESS',
   },
   icons: {
-    icon: '/favicon.png',
-    shortcut: '/favicon.png',
-    apple: '/icons/icon-192.png',
+    icon: '/favicon.png?v=2',
+    shortcut: '/favicon.png?v=2',
+    apple: '/icons/icon-192.png?v=2',
   },
 };
 
@@ -33,7 +33,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <head>
         <meta name="apple-mobile-web-app-capable" content="yes" />
-        <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+        <link rel="icon" type="image/png" href="/favicon.png?v=2" />
+        <link rel="shortcut icon" type="image/png" href="/favicon.png?v=2" />
+        <link rel="apple-touch-icon" href="/icons/icon-192.png?v=2" />
       </head>
       <body>
         <Providers>{children}</Providers>

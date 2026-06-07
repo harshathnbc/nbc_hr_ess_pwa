@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nbc-ess-v1';
+const CACHE_NAME = 'nbc-ess-v2';
 const OFFLINE_URL = '/offline';
 
 const PRECACHE_URLS = [
