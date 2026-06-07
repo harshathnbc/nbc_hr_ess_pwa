@@ -13,7 +13,8 @@ export const metadata: Metadata = {
     title: 'NBC ESS',
   },
   icons: {
-    icon: '/icons/icon-192.png',
+    icon: '/favicon.png',
+    shortcut: '/favicon.png',
     apple: '/icons/icon-192.png',
   },
 };
