@@ -165,7 +165,10 @@
     "idleAssets": "Idle",
     "byEmployeeType": "By Employee Type",
     "bySponsor": "By Sponsor",
-    "employees": "employees"
+    "employees": "employees",
+    "leaveStats": "Leave Stats",
+    "pendingLeaves": "Pending",
+    "approvedThisMonth": "Approved (Month)"
   },
   "mgmtEmployees": {
     "management": "Management",
