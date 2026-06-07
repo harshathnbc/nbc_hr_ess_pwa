@@ -4,416 +4,340 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import api from '@/utils/api';
 
-/* ── Types ── */
+const PRIMARY = '#D97706';
+const BG = '#F1F5F9';
+
+/* ── Interfaces ─────────────────────────────────────────────── */
 interface Asset {
   id: number;
   equipment_number: string;
-  plate_number_en?: string;
-  plate_number_ar?: string;
+  english_plate_letters?: string;
+  english_plate_numbers?: string;
+  arabic_plate_letters?: string;
+  arabic_plate_numbers?: string;
   brand?: string;
   model?: string;
-  year?: string;
+  year_of_manufacture?: string;
   color?: string;
   status?: string;
   istimara_expiry?: string;
   fahas_expiry?: string;
   insurance_expiry?: string;
+  _assignedEmployee?: { id: number; name: string; code: string } | null;
 }
 
-interface AssetAssignment {
-  employee_name?: string;
+interface EmpModalData {
+  first_name?: string;
+  last_name?: string;
   employee_code?: string;
+  iqama_number?: string;
+  nationality?: { name_en: string };
+  actual_category?: { name_en: string };
+  assigned_category?: { name_en: string };
+  workarea?: { name_en: string };
+  joining_date?: string;
+  employee_type?: { name_en: string };
+  _currentAssignment?: {
+    workarea?: string;
+    assigned_category?: string;
+    reporting_to?: string;
+  };
 }
 
-export default function MgmtAssets() {
+/* ── Detail Row ─────────────────────────────────────────────── */
+function DetailRow({ label, value, onPress }: { label: string; value?: string | null; onPress?: () => void }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid #F1F5F9' }}>
+      <span style={{ color: '#64748B', fontSize: 14 }}>{label}</span>
+      {onPress ? (
+        <span onClick={onPress} style={{ color: '#4F46E5', fontSize: 14, fontWeight: 600, textDecoration: 'underline', cursor: 'pointer' }}>{value || '—'}</span>
+      ) : (
+        <span style={{ color: '#1E293B', fontSize: 14, fontWeight: 600, maxWidth: '60%', textAlign: 'right' }}>{value || '—'}</span>
+      )}
+    </div>
+  );
+}
+
+/* ── Expiry Status Helper ─────────────────────────────────── */
+function getExpiryColor(dateStr?: string): string {
+  if (!dateStr) return '#64748B';
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diffDays = (d.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
+  if (diffDays < 0) return '#DC2626';
+  if (diffDays < 30) return '#D97706';
+  return '#16A34A';
+}
+
+function ExpiryRow({ label, value }: { label: string; value?: string | null }) {
+  const color = getExpiryColor(value || undefined);
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid #F1F5F9' }}>
+      <span style={{ color: '#64748B', fontSize: 14 }}>{label}</span>
+      <span style={{ color, fontSize: 14, fontWeight: 600 }}>{value || '—'}</span>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ██  ASSETS SCREEN
+   ══════════════════════════════════════════════════════════════ */
+export default function AssetsScreen() {
   const { t } = useTranslation();
   const [assets, setAssets] = useState<Asset[]>([]);
   const [totalCount, setTotalCount] = useState(0);
-  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [search, setSearch] = useState('');
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [selected, setSelected] = useState<Asset | null>(null);
 
-  // Detail modal
-  const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
-  const [assignedTo, setAssignedTo] = useState<AssetAssignment | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [showDetail, setShowDetail] = useState(false);
+  // Employee detail modal (drill-down from asset)
+  const [empModal, setEmpModal] = useState<EmpModalData | null>(null);
+  const [empLoading, setEmpLoading] = useState(false);
 
-  const fetchAssets = useCallback(async (query: string) => {
+  const fetchAssets = useCallback(async (q = '') => {
     setLoading(true);
-    setError('');
     try {
-      const res = await api.get('/assets/api/v1/equipment/', {
-        params: { search: query || undefined },
-      });
-      const data = Array.isArray(res.data) ? res.data : res.data.results || [];
+      const params: Record<string, string> = {};
+      if (q.trim()) params.search = q.trim();
+      const r = await api.get('/assets/api/v1/equipment/', { params });
+      const data = r.data.results || r.data || [];
       setAssets(data);
-      setTotalCount(Array.isArray(res.data) ? res.data.length : res.data.count || data.length);
-    } catch {
-      setError(t('common.error'));
-    } finally {
-      setLoading(false);
-    }
-  }, [t]);
+      setTotalCount(data.length);
+    } catch (e) { console.warn(e); }
+    finally { setLoading(false); }
+  }, []);
 
-  useEffect(() => {
-    fetchAssets(search);
-  }, []); // eslint-disable-line
+  useEffect(() => { fetchAssets(''); }, [fetchAssets]);
 
-  const handleSearch = (val: string) => {
-    setSearch(val);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      fetchAssets(val);
-    }, 400);
+  const handleSearch = (text: string) => {
+    setSearch(text);
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(() => fetchAssets(text), 400);
   };
 
-  const openDetail = async (asset: Asset) => {
-    setShowDetail(true);
-    setDetailLoading(true);
-    setSelectedAsset(asset);
-    setAssignedTo(null);
+  const getPlate = (item: Asset) => {
+    const parts = [item.english_plate_letters, item.english_plate_numbers].filter(Boolean);
+    return parts.length > 0 ? parts.join(' ') : '—';
+  };
+
+  const openEmployeeDetail = async (empId: number) => {
+    setEmpLoading(true);
+    setEmpModal(null);
+    try {
+      const r = await api.get(`/hr/api/v1/employees/${empId}/`);
+
+      let currentAssignment = null;
+      try {
+        const assignRes = await api.get(`/hr/api/v1/employees/${empId}/assignments/`);
+        const assignments = assignRes.data?.results || assignRes.data || [];
+        currentAssignment = assignments.find((a: { end_date?: string; status?: string }) =>
+          !a.end_date || a.status === 'Current'
+        ) || assignments[0] || null;
+      } catch { /* permission denied */ }
+
+      setEmpModal({ ...r.data, _currentAssignment: currentAssignment });
+    } catch (e) { console.warn(e); }
+    finally { setEmpLoading(false); }
+  };
+
+  const openAssetDetail = async (item: Asset) => {
+    let assignedEmployee: { id: number; name: string; code: string } | null = null;
     try {
       const res = await api.get('/hr/api/v1/asset-assignments/', {
-        params: { equipment: asset.id, status: 'ASSIGNED', latest_only: 1 },
+        params: { equipment: item.id, status: 'ASSIGNED', latest_only: '1' }
       });
       const results = res.data?.results || res.data || [];
-      if (results.length > 0) {
-        setAssignedTo({
-          employee_name: results[0].employee_name || results[0].employee?.first_name,
-          employee_code: results[0].employee_code || results[0].employee?.employee_code,
-        });
+      const current = results.find((a: { status: string; end_date?: string }) => a.status === 'ASSIGNED' && !a.end_date);
+      if (current && current.employee) {
+        assignedEmployee = {
+          id: current.employee,
+          name: current.employee_name,
+          code: current.employee_code,
+        };
       }
     } catch {
-      // Silently handle - just show asset without assignment
-    } finally {
-      setDetailLoading(false);
+      /* ignore */
     }
-  };
-
-  const isExpiringSoon = (dateStr?: string) => {
-    if (!dateStr) return null;
-    const d = new Date(dateStr);
-    const now = new Date();
-    const diff = Math.floor((d.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-    if (diff < 0) return 'expired';
-    if (diff < 30) return 'critical';
-    if (diff < 60) return 'warning';
-    return 'ok';
-  };
-
-  const expiryColor = (status: string | null) => {
-    switch (status) {
-      case 'expired': return '#DC2626';
-      case 'critical': return '#D97706';
-      case 'warning': return '#2563EB';
-      default: return '#16A34A';
-    }
-  };
-
-  /* ── Styles ── */
-  const headerStyle: React.CSSProperties = {
-    background: 'linear-gradient(135deg, #D97706 0%, #B45309 100%)',
-    color: '#fff',
-    padding: '20px 20px 32px',
-    borderRadius: '0 0 28px 28px',
-  };
-
-  const cardStyle: React.CSSProperties = {
-    background: '#fff',
-    border: '1px solid #E2E8F0',
-    borderRadius: 16,
-    padding: '14px 16px',
-    display: 'flex',
-    alignItems: 'center',
-    gap: 12,
-    cursor: 'pointer',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-  };
-
-  const modalOverlay: React.CSSProperties = {
-    position: 'fixed',
-    inset: 0,
-    background: 'rgba(0,0,0,0.5)',
-    zIndex: 2000,
-    display: 'flex',
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-  };
-
-  const modalContent: React.CSSProperties = {
-    background: '#fff',
-    borderRadius: '24px 24px 0 0',
-    width: '100%',
-    maxWidth: 480,
-    maxHeight: '85vh',
-    overflow: 'auto',
-    padding: '24px 20px env(safe-area-inset-bottom, 20px)',
-    animation: 'slideUp 0.3s ease',
+    setSelected({ ...item, _assignedEmployee: assignedEmployee });
   };
 
   return (
-    <div>
+    <div style={{ minHeight: '100vh', backgroundColor: BG }}>
       {/* ── Header ── */}
-      <header style={headerStyle} className="safe-top">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 2 }}>{t('mgmtEmployees.management')}</div>
-            <div style={{ fontSize: 20, fontWeight: 800 }}>{t('assets.title')}</div>
-          </div>
-          <div
-            style={{
-              background: 'rgba(255,255,255,0.2)',
-              borderRadius: 12,
-              padding: '8px 14px',
-              textAlign: 'center',
-            }}
-          >
-            <div style={{ fontSize: 18, fontWeight: 800 }}>{totalCount}</div>
-            <div style={{ fontSize: 10, opacity: 0.8 }}>{t('assets.total')}</div>
+      <div style={{ backgroundColor: PRIMARY, paddingTop: 56, paddingBottom: 24, paddingLeft: 24, paddingRight: 24, borderBottomLeftRadius: 32, borderBottomRightRadius: 32 }}>
+        <div style={{ color: '#FEF3C7', fontSize: 13 }}>Management</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+          <div style={{ color: '#fff', fontSize: 28, fontWeight: 800 }}>Assets</div>
+          <div style={{ backgroundColor: '#ffffff25', padding: '6px 14px', borderRadius: 20 }}>
+            <span style={{ color: '#fff', fontSize: 14, fontWeight: 800 }}>{totalCount} Total</span>
           </div>
         </div>
-      </header>
+      </div>
 
       {/* ── Search ── */}
-      <div style={{ padding: '0 16px', marginTop: -16 }}>
-        <div style={{ position: 'relative' }}>
+      <div style={{ padding: '16px 16px 8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', backgroundColor: '#fff', borderRadius: 16, padding: '0 16px', boxShadow: '0 1px 8px rgba(0,0,0,0.04)' }}>
+          <span style={{ fontSize: 16 }}>🔍</span>
           <input
-            className="mgmt-input"
             value={search}
-            onChange={(e) => handleSearch(e.target.value)}
-            placeholder={t('assets.searchPlaceholder')}
-            style={{
-              padding: '14px 16px 14px 42px',
-              borderRadius: 14,
-              boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-              fontSize: 14,
-            }}
+            onChange={e => handleSearch(e.target.value)}
+            placeholder="Search by plate or asset number..."
+            style={{ flex: 1, padding: 14, color: '#1E293B', fontSize: 15, border: 'none', outline: 'none', background: 'transparent', fontFamily: 'inherit' }}
           />
-          <span
-            style={{
-              position: 'absolute',
-              left: 14,
-              top: '50%',
-              transform: 'translateY(-50%)',
-              fontSize: 18,
-              opacity: 0.4,
-            }}
-          >
-            🔍
-          </span>
+          {search.length > 0 && (
+            <button onClick={() => { setSearch(''); fetchAssets(''); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+              <span style={{ color: '#94A3B8', fontSize: 18 }}>✕</span>
+            </button>
+          )}
         </div>
       </div>
 
-      {/* ── Asset List ── */}
-      <div style={{ padding: '16px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {loading ? (
-          Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} style={{ ...cardStyle, opacity: 0.5 }} className="animate-pulse">
-              <div style={{ width: 44, height: 44, borderRadius: 12, background: '#E2E8F0' }} />
-              <div style={{ flex: 1 }}>
-                <div style={{ width: '60%', height: 14, background: '#E2E8F0', borderRadius: 6, marginBottom: 6 }} />
-                <div style={{ width: '40%', height: 10, background: '#E2E8F0', borderRadius: 6 }} />
-              </div>
-            </div>
-          ))
-        ) : error && assets.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 40 }}>
-            <span style={{ fontSize: 48, display: 'block', marginBottom: 12 }}>⚠️</span>
-            <span style={{ color: '#64748B' }}>{error}</span>
-          </div>
-        ) : assets.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 40 }}>
-            <span style={{ fontSize: 48, display: 'block', marginBottom: 12 }}>🚗</span>
-            <span style={{ color: '#94A3B8', fontSize: 14 }}>{t('common.noData')}</span>
-          </div>
-        ) : (
-          assets.map((asset) => (
-            <div key={asset.id} style={cardStyle} onClick={() => openDetail(asset)}>
-              <div
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 12,
-                  background: 'linear-gradient(135deg, #D97706, #F59E0B)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#fff',
-                  fontSize: 18,
-                  flexShrink: 0,
-                }}
-              >
-                🚗
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: '#1E293B' }}>
-                  #{asset.equipment_number}
-                </div>
-                <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 2 }}>
-                  {asset.plate_number_en || asset.plate_number_ar || t('common.na')}
-                </div>
-              </div>
-              {asset.status && (
-                <div
-                  style={{
-                    background: asset.status === 'ACTIVE' ? '#F0FDF4' : '#FEF2F2',
-                    color: asset.status === 'ACTIVE' ? '#16A34A' : '#DC2626',
-                    padding: '4px 10px',
-                    borderRadius: 8,
-                    fontSize: 10,
-                    fontWeight: 600,
-                  }}
-                >
-                  {asset.status}
-                </div>
-              )}
-              <span style={{ fontSize: 16, color: '#CBD5E1' }}>›</span>
-            </div>
-          ))
-        )}
+      {/* ── Count ── */}
+      <div style={{ padding: '6px 20px' }}>
+        <span style={{ color: '#64748B', fontSize: 12 }}>{totalCount} assets found</span>
       </div>
 
-      {/* ── Asset Detail Modal ── */}
-      {showDetail && selectedAsset && (
-        <div style={modalOverlay} onClick={() => setShowDetail(false)}>
-          <div style={modalContent} onClick={(e) => e.stopPropagation()}>
-            {/* Handle */}
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
-              <div style={{ width: 40, height: 4, borderRadius: 2, background: '#E2E8F0' }} />
+      {/* ── List ── */}
+      {loading ? (
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: 60 }}>
+          <div style={{ width: 40, height: 40, border: `4px solid ${PRIMARY}`, borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+        </div>
+      ) : (
+        <div style={{ padding: '0 16px 16px' }}>
+          {assets.length === 0 ? (
+            <div style={{ backgroundColor: '#fff', borderRadius: 16, padding: 32, textAlign: 'center', marginTop: 16 }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>🚗</div>
+              <div style={{ color: '#64748B', fontSize: 14 }}>No assets found.</div>
+            </div>
+          ) : (
+            assets.map(item => (
+              <div
+                key={item.id}
+                onClick={() => openAssetDetail(item)}
+                style={{
+                  backgroundColor: '#fff', borderRadius: 16, padding: 14, marginBottom: 8,
+                  display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer',
+                }}
+              >
+                <div style={{ width: 42, height: 42, borderRadius: 14, backgroundColor: '#FFFBEB', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <span style={{ fontSize: 18 }}>🚗</span>
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ color: '#1E293B', fontSize: 14, fontWeight: 700 }}>{item.equipment_number}</div>
+                  <div style={{ color: '#94A3B8', fontSize: 12, marginTop: 2 }}>{getPlate(item)}</div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* ══════════ Asset Detail Modal ══════════ */}
+      {selected && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.3)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', zIndex: 9999 }}>
+          <div style={{ backgroundColor: '#fff', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24, maxHeight: '85%', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+              <span style={{ color: '#1E293B', fontSize: 20, fontWeight: 800 }}>Asset Details</span>
+              <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                <span style={{ color: '#94A3B8', fontSize: 26 }}>✕</span>
+              </button>
             </div>
 
-            <h2 style={{ fontSize: 17, fontWeight: 700, color: '#1E293B', marginBottom: 20 }}>
-              {t('assets.assetDetails')}
-            </h2>
-
-            {detailLoading ? (
-              <div style={{ textAlign: 'center', padding: 40 }}>
-                <div className="animate-spin" style={{ width: 32, height: 32, border: '3px solid #E2E8F0', borderTopColor: '#D97706', borderRadius: '50%', margin: '0 auto' }} />
+            {/* Header card */}
+            <div style={{ backgroundColor: '#FFFBEB', borderRadius: 16, padding: 16, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div style={{ width: 50, height: 50, borderRadius: 16, backgroundColor: PRIMARY, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <span style={{ fontSize: 22 }}>🚗</span>
               </div>
-            ) : (
-              <>
-                {/* Asset icon + number */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20 }}>
-                  <div
-                    style={{
-                      width: 56,
-                      height: 56,
-                      borderRadius: 16,
-                      background: 'linear-gradient(135deg, #D97706, #F59E0B)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: 28,
-                    }}
-                  >
-                    🚗
+              <div style={{ flex: 1 }}>
+                <div style={{ color: '#1E293B', fontSize: 16, fontWeight: 800 }}>{selected.equipment_number}</div>
+                <div style={{ color: '#64748B', fontSize: 12, marginTop: 2 }}>{getPlate(selected)}</div>
+              </div>
+            </div>
+
+            <DetailRow label="Equipment #" value={selected.equipment_number} />
+            <DetailRow label="Plate (EN)" value={getPlate(selected)} />
+            <DetailRow label="Plate (AR)" value={
+              [selected.arabic_plate_letters, selected.arabic_plate_numbers].filter(Boolean).join(' ') || '—'
+            } />
+            <DetailRow label="Brand" value={selected.brand} />
+            <DetailRow label="Model" value={selected.model} />
+            <DetailRow label="Year" value={selected.year_of_manufacture} />
+            <DetailRow label="Color" value={selected.color} />
+            <DetailRow label="Status" value={selected.status} />
+            <ExpiryRow label="Istimara Expiry" value={selected.istimara_expiry} />
+            <ExpiryRow label="Fahas Expiry" value={selected.fahas_expiry} />
+            <ExpiryRow label="Insurance Expiry" value={selected.insurance_expiry} />
+
+            {/* Assigned Employee */}
+            {selected._assignedEmployee ? (
+              <div style={{ marginTop: 16, backgroundColor: '#EEF2FF', borderRadius: 14, padding: 14 }}>
+                <div style={{ color: '#4F46E5', fontSize: 13, fontWeight: 800, marginBottom: 8 }}>Assigned To</div>
+                <div
+                  onClick={() => openEmployeeDetail(selected._assignedEmployee!.id)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
+                >
+                  <div style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: '#4F46E5', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <span style={{ color: '#fff', fontSize: 14, fontWeight: 800 }}>{(selected._assignedEmployee.name || '?')[0]}</span>
                   </div>
                   <div>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: '#1E293B' }}>
-                      #{selectedAsset.equipment_number}
+                    <div style={{ color: '#4F46E5', fontSize: 14, fontWeight: 700, textDecoration: 'underline' }}>
+                      {selected._assignedEmployee.name || 'View Employee'}
                     </div>
-                    <div style={{ fontSize: 13, color: '#64748B' }}>
-                      {selectedAsset.plate_number_en || t('common.na')}
-                    </div>
+                    <div style={{ color: '#64748B', fontSize: 11 }}>{selected._assignedEmployee.code || ''}</div>
                   </div>
                 </div>
+              </div>
+            ) : (
+              <div style={{ marginTop: 16, backgroundColor: '#FEF2F2', borderRadius: 14, padding: 14 }}>
+                <span style={{ color: '#DC2626', fontSize: 13, fontWeight: 700 }}>Not currently assigned</span>
+              </div>
+            )}
 
-                {/* Info Grid */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
-                  {[
-                    { label: t('assets.equipmentNo'), value: selectedAsset.equipment_number },
-                    { label: t('assets.plateEn'), value: selectedAsset.plate_number_en },
-                    { label: t('assets.plateAr'), value: selectedAsset.plate_number_ar },
-                    { label: t('assets.brand'), value: selectedAsset.brand },
-                    { label: t('assets.model'), value: selectedAsset.model },
-                    { label: t('assets.year'), value: selectedAsset.year },
-                    { label: t('assets.color'), value: selectedAsset.color },
-                    { label: t('assets.status'), value: selectedAsset.status },
-                  ].map((field, i) => (
-                    <div key={i} style={{ background: '#F8FAFC', borderRadius: 12, padding: '10px 12px' }}>
-                      <div style={{ fontSize: 11, color: '#94A3B8', marginBottom: 4 }}>{field.label}</div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: '#1E293B' }}>{field.value || t('common.na')}</div>
-                    </div>
-                  ))}
-                </div>
+            <div style={{ height: 40 }} />
+          </div>
+        </div>
+      )}
 
-                {/* Expiry Dates */}
-                <div style={{ marginBottom: 20 }}>
-                  {[
-                    { label: t('assets.istimaraExpiry'), value: selectedAsset.istimara_expiry },
-                    { label: t('assets.fahasExpiry'), value: selectedAsset.fahas_expiry },
-                    { label: t('assets.insuranceExpiry'), value: selectedAsset.insurance_expiry },
-                  ].map((field, i) => {
-                    const status = isExpiringSoon(field.value);
-                    return (
-                      <div
-                        key={i}
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          padding: '10px 12px',
-                          background: '#F8FAFC',
-                          borderRadius: 12,
-                          marginBottom: 8,
-                        }}
-                      >
-                        <span style={{ fontSize: 13, color: '#64748B' }}>{field.label}</span>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: field.value ? expiryColor(status) : '#94A3B8' }}>
-                          {field.value || t('common.na')}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Assigned To */}
-                <div
-                  style={{
-                    background: assignedTo ? '#F0FDF4' : '#F8FAFC',
-                    border: `1px solid ${assignedTo ? '#BBF7D0' : '#E2E8F0'}`,
-                    borderRadius: 14,
-                    padding: 14,
-                    marginBottom: 12,
-                  }}
-                >
-                  <div style={{ fontSize: 12, color: assignedTo ? '#16A34A' : '#94A3B8', fontWeight: 600, marginBottom: 4 }}>
-                    {t('assets.assignedTo')}
-                  </div>
-                  {assignedTo ? (
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: '#1E293B' }}>{assignedTo.employee_name}</div>
-                      <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>{assignedTo.employee_code}</div>
-                    </div>
-                  ) : (
-                    <div style={{ fontSize: 13, color: '#94A3B8' }}>{t('assets.notAssigned')}</div>
-                  )}
-                </div>
-
-                {/* Close Button */}
-                <button
-                  onClick={() => setShowDetail(false)}
-                  style={{
-                    width: '100%',
-                    padding: '14px',
-                    background: '#F1F5F9',
-                    border: 'none',
-                    borderRadius: 14,
-                    color: '#64748B',
-                    fontWeight: 600,
-                    fontSize: 14,
-                    cursor: 'pointer',
-                  }}
-                >
-                  {t('common.close')}
-                </button>
-              </>
+      {/* ══════════ Employee Detail Modal (drill-down from asset) ══════════ */}
+      {(empModal || empLoading) && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: 20, zIndex: 10000 }}>
+          <div style={{ backgroundColor: '#fff', borderRadius: 20, padding: 24, width: '100%', maxWidth: 400 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+              <span style={{ color: '#1E293B', fontSize: 18, fontWeight: 800 }}>Employee Details</span>
+              <button onClick={() => setEmpModal(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                <span style={{ color: '#94A3B8', fontSize: 22 }}>✕</span>
+              </button>
+            </div>
+            {empLoading ? (
+              <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
+                <div style={{ width: 32, height: 32, border: '4px solid #4F46E5', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+              </div>
+            ) : empModal ? (
+              <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+                <DetailRow label="Name" value={`${empModal.first_name || ''} ${empModal.last_name || ''}`} />
+                <DetailRow label="Employee Code" value={empModal.employee_code} />
+                <DetailRow label="Iqama" value={empModal.iqama_number} />
+                <DetailRow label="Nationality" value={empModal.nationality?.name_en} />
+                <DetailRow label="Actual Category" value={empModal.actual_category?.name_en} />
+                <DetailRow label="Assigned Category" value={
+                  empModal._currentAssignment?.assigned_category || empModal.assigned_category?.name_en
+                } />
+                <DetailRow label="Reporting To" value={empModal._currentAssignment?.reporting_to || '—'} />
+                <DetailRow label="Current Assignment" value={
+                  empModal._currentAssignment?.workarea || empModal.workarea?.name_en || 'STANDBY'
+                } />
+                <DetailRow label="Joining Date" value={empModal.joining_date} />
+                <DetailRow label="Employee Type" value={empModal.employee_type?.name_en} />
+              </div>
+            ) : (
+              <p style={{ color: '#94A3B8', textAlign: 'center', padding: '20px 0' }}>Failed to load</p>
             )}
           </div>
         </div>
       )}
+
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }

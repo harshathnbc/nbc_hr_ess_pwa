@@ -1,172 +1,588 @@
 'use client';
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import api from '@/utils/api';
+import { useAuth } from '@/context/AuthContext';
 
-const NAVY = '#1B2A4A', NAVY_DEEP = '#0F1A2E', RED = '#C8102E', SILVER = '#8E99A8',
-  GLASS = 'rgba(255,255,255,0.06)', GLASS_BORDER = 'rgba(255,255,255,0.10)', GREEN = '#34D399';
+const NAVY = '#1B2A4A';
+const NAVY_DEEP = '#0F1A2E';
+const RED = '#C8102E';
+const SILVER = '#8E99A8';
+const LIGHT = '#C4CDD9';
+const GLASS = 'rgba(255,255,255,0.06)';
+const GLASS_BORDER = 'rgba(255,255,255,0.10)';
 
-interface AttendanceRecord { id: number; date: string; check_in: string | null; check_out: string | null; }
+interface AttendanceRecord {
+  id: number;
+  date: string;
+  check_in: string | null;
+  check_out: string | null;
+  hours_worked: string | null;
+}
+
+interface Profile {
+  id: number;
+}
 
 export default function AttendancePage() {
   const { t } = useTranslation();
-  const [profile, setProfile] = useState<{ id: number } | null>(null);
+  const { user } = useAuth();
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [todayRecord, setTodayRecord] = useState<AttendanceRecord | null>(null);
   const [history, setHistory] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [checkingIn, setCheckingIn] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const today = new Date().toISOString().split('T')[0];
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  const todayStr = new Date().toISOString().split('T')[0];
-
   const fetchData = useCallback(async () => {
     try {
-      const me = await api.get('/hr/api/v1/me/');
-      setProfile(me.data);
-      const att = await api.get('/hr/api/v1/attendance/', { params: { employee: me.data.id } });
-      const records: AttendanceRecord[] = att.data.results || att.data;
-      const today = records.find(r => r.date === todayStr);
-      setTodayRecord(today || null);
-      setHistory(records.filter(r => r.date !== todayStr).slice(0, 14));
-    } catch { /* */ }
-    finally { setLoading(false); }
-  }, [todayStr]);
+      const meRes = await api.get('/hr/api/v1/me/');
+      setProfile(meRes.data);
+      const attRes = await api.get('/hr/api/v1/attendance/', {
+        params: { employee: meRes.data.id },
+      });
+      const records: AttendanceRecord[] =
+        attRes.data.results || attRes.data || [];
+      setTodayRecord(records.find((r) => r.date === today) || null);
+      setHistory(records.slice(0, 14));
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data
+          ?.detail || 'Failed to load attendance.';
+      alert(`${t('common.error')}\n\n${msg}`);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [t, today]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const handleCheckIn = async () => {
     if (!profile) return;
     setCheckingIn(true);
     try {
-      const now = new Date();
-      const timeStr = now.toTimeString().split(' ')[0];
-      await api.post('/hr/api/v1/attendance/', { employee: profile.id, date: todayStr, check_in: timeStr });
-      await fetchData();
-    } catch { alert(t('attendance.checkInFailed')); }
-    finally { setCheckingIn(false); }
+      await api.post('/hr/api/v1/attendance/', {
+        employee: profile.id,
+        date: today,
+        check_in: new Date().toISOString(),
+      });
+      alert(
+        `${t('attendance.checkedIn')}\n\n${t('attendance.time')}: ${new Date().toLocaleTimeString()}`
+      );
+      fetchData();
+    } catch (err: unknown) {
+      const errData = (err as { response?: { data?: { date?: string[] } } })
+        ?.response?.data;
+      alert(
+        `${t('common.error')}\n\n${errData?.date?.[0] || t('attendance.checkInFailed')}`
+      );
+    } finally {
+      setCheckingIn(false);
+    }
   };
 
   const handleCheckOut = async () => {
     if (!todayRecord) return;
     setCheckingIn(true);
     try {
-      const now = new Date();
-      const timeStr = now.toTimeString().split(' ')[0];
-      await api.patch(`/hr/api/v1/attendance/${todayRecord.id}/`, { check_out: timeStr });
-      await fetchData();
-    } catch { alert(t('attendance.checkOutFailed')); }
-    finally { setCheckingIn(false); }
+      await api.patch(`/hr/api/v1/attendance/${todayRecord.id}/`, {
+        check_out: new Date().toISOString(),
+      });
+      alert(
+        `${t('attendance.checkedOut')}\n\n${t('attendance.time')}: ${new Date().toLocaleTimeString()}`
+      );
+      fetchData();
+    } catch {
+      alert(`${t('common.error')}\n\n${t('attendance.checkOutFailed')}`);
+    } finally {
+      setCheckingIn(false);
+    }
   };
 
-  const formatTime = (t: string | null) => t ? t.slice(0, 5) : '—';
+  if (loading) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          height: '100dvh',
+          backgroundColor: NAVY_DEEP,
+        }}
+      >
+        <div
+          style={{
+            width: 40,
+            height: 40,
+            border: '3px solid rgba(255,255,255,0.1)',
+            borderTopColor: RED,
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite',
+          }}
+        />
+      </div>
+    );
+  }
 
-  const getElapsed = () => {
-    if (!todayRecord?.check_in) return null;
-    const [h, m, s] = todayRecord.check_in.split(':').map(Number);
-    const start = new Date(); start.setHours(h, m, s || 0, 0);
-    const diff = Math.max(0, Math.floor((currentTime.getTime() - start.getTime()) / 1000));
-    const hrs = Math.floor(diff / 3600), mins = Math.floor((diff % 3600) / 60), secs = diff % 60;
-    return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-  };
+  const hasIn = !!todayRecord?.check_in;
+  const hasOut = !!todayRecord?.check_out;
+  const fmt = (iso: string | null | undefined) =>
+    iso
+      ? new Date(iso).toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      : '—';
 
-  const getHoursWorked = (rec: AttendanceRecord) => {
-    if (!rec.check_in || !rec.check_out) return '—';
-    const [h1, m1] = rec.check_in.split(':').map(Number);
-    const [h2, m2] = rec.check_out.split(':').map(Number);
-    const diff = (h2 * 60 + m2) - (h1 * 60 + m1);
-    return `${Math.floor(diff / 60)}h ${diff % 60}m`;
-  };
-
-  const dayName = currentTime.toLocaleDateString('en', { weekday: 'long' });
-  const dateStr = currentTime.toLocaleDateString('en', { day: 'numeric', month: 'long', year: 'numeric' });
-  const timeDisplay = currentTime.toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
-
-  const hasCheckedIn = !!todayRecord?.check_in;
-  const hasCheckedOut = !!todayRecord?.check_out;
-  const elapsed = getElapsed();
-
-  if (loading) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '80dvh' }}>
-      <div style={{ width: 36, height: 36, border: '3px solid rgba(255,255,255,0.1)', borderTopColor: RED, borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-    </div>
-  );
+  let elapsed = '00:00:00';
+  if (hasIn && !hasOut && todayRecord?.check_in) {
+    const d = Math.floor(
+      (currentTime.getTime() - new Date(todayRecord.check_in).getTime()) / 1000
+    );
+    elapsed = `${String(Math.floor(d / 3600)).padStart(2, '0')}:${String(
+      Math.floor((d % 3600) / 60)
+    ).padStart(2, '0')}:${String(d % 60).padStart(2, '0')}`;
+  }
 
   return (
-    <div style={{ paddingBottom: 16 }}>
-      {/* Header */}
-      <div style={{ background: NAVY, paddingTop: 48, paddingBottom: 24, paddingInline: 20, borderRadius: '0 0 28px 28px', textAlign: 'center' }}>
-        <h1 style={{ color: '#fff', fontSize: 20, fontWeight: 800 }}>{t('attendance.title')}</h1>
-        <p style={{ color: SILVER, fontSize: 13, marginTop: 4 }}>{dayName}, {dateStr}</p>
-      </div>
+    <>
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.06); }
+        }
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
+      <div
+        style={{
+          minHeight: '100dvh',
+          backgroundColor: NAVY_DEEP,
+          overflowY: 'auto',
+          paddingBottom: 32,
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            backgroundColor: NAVY,
+            paddingTop: 60,
+            paddingBottom: 28,
+            paddingLeft: 24,
+            paddingRight: 24,
+            borderRadius: '0 0 32px 32px',
+          }}
+        >
+          <p style={{ color: SILVER, fontSize: 13, letterSpacing: 0.5, margin: 0 }}>
+            {t('attendance.title')}
+          </p>
+          <h1
+            style={{
+              color: '#fff',
+              fontSize: 28,
+              fontWeight: 900,
+              marginTop: 4,
+              letterSpacing: -0.5,
+            }}
+          >
+            {new Date().toLocaleDateString('en-US', { weekday: 'long' })}
+          </h1>
+          <p style={{ color: SILVER, fontSize: 13, marginTop: 4 }}>
+            {today}
+          </p>
+        </div>
 
-      {/* Clock Card */}
-      <div style={{ margin: '16px 16px 0', background: GLASS, border: `1px solid ${GLASS_BORDER}`, borderRadius: 22, padding: 24, textAlign: 'center' }}>
-        <p style={{ color: SILVER, fontSize: 11, fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>{t('attendance.currentTime').toUpperCase()}</p>
-        <p style={{ color: '#fff', fontSize: 36, fontWeight: 900, fontVariantNumeric: 'tabular-nums', letterSpacing: -1 }}>{timeDisplay}</p>
+        {/* Clock Card */}
+        <div style={{ marginLeft: 16, marginRight: 16, marginTop: 20 }}>
+          <div
+            style={{
+              backgroundColor: GLASS,
+              borderRadius: 28,
+              padding: 32,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              border: `1px solid ${GLASS_BORDER}`,
+              boxShadow: '0 8px 20px rgba(0,0,0,0.2)',
+            }}
+          >
+            <span
+              style={{
+                color: SILVER,
+                fontSize: 12,
+                fontWeight: 700,
+                marginBottom: 6,
+                letterSpacing: 1,
+              }}
+            >
+              {t('attendance.currentTime')}
+            </span>
+            <span
+              style={{
+                color: '#fff',
+                fontSize: 48,
+                fontWeight: 900,
+                fontVariantNumeric: 'tabular-nums',
+                letterSpacing: -1,
+              }}
+            >
+              {currentTime.toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+              })}
+            </span>
 
-        {hasCheckedIn && !hasCheckedOut && elapsed && (
-          <div style={{ marginTop: 16 }}>
-            <p style={{ color: SILVER, fontSize: 11, fontWeight: 700 }}>{t('attendance.workingFor')}</p>
-            <p style={{ color: GREEN, fontSize: 28, fontWeight: 900, fontVariantNumeric: 'tabular-nums', animation: 'pulse 2s ease-in-out infinite' }}>{elapsed}</p>
-          </div>
-        )}
+            {hasIn && !hasOut && (
+              <div
+                style={{
+                  marginTop: 16,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  animation: 'pulse 2.4s ease-in-out infinite',
+                }}
+              >
+                <span
+                  style={{
+                    color: SILVER,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: 0.5,
+                  }}
+                >
+                  {t('attendance.workingFor')}
+                </span>
+                <span
+                  style={{
+                    color: '#34D399',
+                    fontSize: 36,
+                    fontWeight: 900,
+                    fontVariantNumeric: 'tabular-nums',
+                    marginTop: 2,
+                  }}
+                >
+                  {elapsed}
+                </span>
+              </div>
+            )}
 
-        {/* IN / OUT / Total */}
-        <div style={{ display: 'flex', justifyContent: 'center', gap: 24, marginTop: 20 }}>
-          <div>
-            <p style={{ color: SILVER, fontSize: 10, fontWeight: 700 }}>{t('attendance.in')}</p>
-            <p style={{ color: GREEN, fontSize: 16, fontWeight: 800 }}>{formatTime(todayRecord?.check_in || null)}</p>
-          </div>
-          <div style={{ width: 1, background: GLASS_BORDER }} />
-          <div>
-            <p style={{ color: SILVER, fontSize: 10, fontWeight: 700 }}>{t('attendance.out')}</p>
-            <p style={{ color: RED, fontSize: 16, fontWeight: 800 }}>{formatTime(todayRecord?.check_out || null)}</p>
-          </div>
-          <div style={{ width: 1, background: GLASS_BORDER }} />
-          <div>
-            <p style={{ color: SILVER, fontSize: 10, fontWeight: 700 }}>{t('attendance.totalHours')}</p>
-            <p style={{ color: '#fff', fontSize: 16, fontWeight: 800 }}>{todayRecord ? getHoursWorked(todayRecord) : '—'}</p>
+            {/* Status Row */}
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'row',
+                width: '100%',
+                marginTop: 28,
+                marginBottom: 28,
+                justifyContent: 'space-around',
+              }}
+            >
+              {[
+                {
+                  label: t('attendance.in'),
+                  value: fmt(todayRecord?.check_in),
+                  active: hasIn,
+                  color: '#34D399',
+                  bg: 'rgba(52,211,153,0.12)',
+                },
+                {
+                  label: t('attendance.out'),
+                  value: fmt(todayRecord?.check_out),
+                  active: hasOut,
+                  color: '#FF4D6A',
+                  bg: 'rgba(255,77,106,0.12)',
+                },
+                {
+                  label: t('attendance.totalHours'),
+                  value: todayRecord?.hours_worked
+                    ? `${todayRecord.hours_worked}h`
+                    : '—',
+                  active: !!todayRecord?.hours_worked,
+                  color: RED,
+                  bg: 'rgba(200,16,46,0.12)',
+                },
+              ].map((s, i) => (
+                <div
+                  key={i}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                  }}
+                >
+                  <div
+                    style={{
+                      backgroundColor: s.active ? s.bg : GLASS,
+                      borderRadius: 12,
+                      paddingLeft: 14,
+                      paddingRight: 14,
+                      paddingTop: 6,
+                      paddingBottom: 6,
+                      marginBottom: 6,
+                      border: `1px solid ${
+                        s.active ? `${s.color}30` : GLASS_BORDER
+                      }`,
+                    }}
+                  >
+                    <span
+                      style={{
+                        color: s.active ? s.color : SILVER,
+                        fontSize: 10,
+                        fontWeight: 800,
+                        letterSpacing: 0.5,
+                      }}
+                    >
+                      {s.label}
+                    </span>
+                  </div>
+                  <span
+                    style={{
+                      color: s.active ? '#fff' : '#4A5568',
+                      fontSize: 22,
+                      fontWeight: 800,
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
+                    {s.value}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Action Button */}
+            {!hasIn ? (
+              <button
+                onClick={handleCheckIn}
+                disabled={checkingIn}
+                style={{
+                  backgroundColor: '#34D399',
+                  borderRadius: 20,
+                  paddingTop: 18,
+                  paddingBottom: 18,
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: 'none',
+                  cursor: checkingIn ? 'not-allowed' : 'pointer',
+                  boxShadow: '0 6px 16px rgba(52,211,153,0.4)',
+                }}
+              >
+                {checkingIn ? (
+                  <div
+                    style={{
+                      width: 20,
+                      height: 20,
+                      border: '2px solid rgba(255,255,255,0.3)',
+                      borderTopColor: '#fff',
+                      borderRadius: '50%',
+                      animation: 'spin 1s linear infinite',
+                    }}
+                  />
+                ) : (
+                  <span
+                    style={{ color: '#fff', fontWeight: 900, fontSize: 16 }}
+                  >
+                    {t('attendance.checkInNow')}
+                  </span>
+                )}
+              </button>
+            ) : !hasOut ? (
+              <button
+                onClick={handleCheckOut}
+                disabled={checkingIn}
+                style={{
+                  backgroundColor: RED,
+                  borderRadius: 20,
+                  paddingTop: 18,
+                  paddingBottom: 18,
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: 'none',
+                  cursor: checkingIn ? 'not-allowed' : 'pointer',
+                  boxShadow: `0 6px 16px rgba(200,16,46,0.4)`,
+                }}
+              >
+                {checkingIn ? (
+                  <div
+                    style={{
+                      width: 20,
+                      height: 20,
+                      border: '2px solid rgba(255,255,255,0.3)',
+                      borderTopColor: '#fff',
+                      borderRadius: '50%',
+                      animation: 'spin 1s linear infinite',
+                    }}
+                  />
+                ) : (
+                  <span
+                    style={{ color: '#fff', fontWeight: 900, fontSize: 16 }}
+                  >
+                    {t('attendance.checkOut')}
+                  </span>
+                )}
+              </button>
+            ) : (
+              <div
+                style={{
+                  backgroundColor: 'rgba(52,211,153,0.12)',
+                  borderRadius: 20,
+                  paddingTop: 16,
+                  paddingBottom: 16,
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: '1.5px solid rgba(52,211,153,0.3)',
+                }}
+              >
+                <span
+                  style={{ color: '#34D399', fontWeight: 900, fontSize: 15 }}
+                >
+                  {t('attendance.dayComplete')} — {todayRecord?.hours_worked}h
+                </span>
+              </div>
+            )}
           </div>
         </div>
-      </div>
 
-      {/* Action Button */}
-      <div style={{ padding: '16px 16px 0' }}>
-        {!hasCheckedIn ? (
-          <button onClick={handleCheckIn} disabled={checkingIn} style={{ width: '100%', padding: 16, background: GREEN, color: '#fff', border: 'none', borderRadius: 16, fontSize: 16, fontWeight: 800, cursor: 'pointer', opacity: checkingIn ? 0.6 : 1 }}>
-            {checkingIn ? '...' : `📍 ${t('attendance.checkInNow')}`}
-          </button>
-        ) : !hasCheckedOut ? (
-          <button onClick={handleCheckOut} disabled={checkingIn} style={{ width: '100%', padding: 16, background: RED, color: '#fff', border: 'none', borderRadius: 16, fontSize: 16, fontWeight: 800, cursor: 'pointer', opacity: checkingIn ? 0.6 : 1 }}>
-            {checkingIn ? '...' : `🏠 ${t('attendance.checkOut')}`}
-          </button>
-        ) : (
-          <div style={{ width: '100%', padding: 16, background: 'rgba(52,211,153,0.12)', border: '1px solid rgba(52,211,153,0.2)', borderRadius: 16, textAlign: 'center', color: GREEN, fontSize: 16, fontWeight: 800 }}>
-            {t('attendance.dayComplete')}
-          </div>
-        )}
-      </div>
-
-      {/* History */}
-      <div style={{ padding: '20px 16px 0' }}>
-        <h2 style={{ color: '#fff', fontSize: 16, fontWeight: 800, marginBottom: 12 }}>{t('attendance.recentHistory')}</h2>
-        {history.length === 0 ? (
-          <p style={{ color: SILVER, fontSize: 13, textAlign: 'center', padding: 20 }}>{t('attendance.noRecords')}</p>
-        ) : history.map((rec, i) => (
-          <div key={i} style={{ background: GLASS, border: `1px solid ${GLASS_BORDER}`, borderRadius: 14, padding: '12px 16px', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <p style={{ color: '#fff', fontSize: 13, fontWeight: 700 }}>{rec.date}</p>
-              <p style={{ color: SILVER, fontSize: 11, marginTop: 2 }}>{formatTime(rec.check_in)} → {formatTime(rec.check_out)}</p>
+        {/* History */}
+        <div
+          style={{
+            paddingLeft: 16,
+            paddingRight: 16,
+            marginTop: 22,
+          }}
+        >
+          <h2
+            style={{
+              color: '#fff',
+              fontSize: 17,
+              fontWeight: 800,
+              marginBottom: 14,
+              letterSpacing: -0.3,
+            }}
+          >
+            {t('attendance.recentHistory')}
+          </h2>
+          {history.length === 0 ? (
+            <div
+              style={{
+                backgroundColor: GLASS,
+                borderRadius: 18,
+                padding: 28,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                border: `1px solid ${GLASS_BORDER}`,
+              }}
+            >
+              <span style={{ color: SILVER, fontSize: 14 }}>
+                {t('attendance.noRecords')}
+              </span>
             </div>
-            <span style={{ color: GREEN, fontSize: 13, fontWeight: 700 }}>{getHoursWorked(rec)}</span>
-          </div>
-        ))}
+          ) : (
+            history.map((rec, i) => (
+              <div
+                key={rec.id || i}
+                style={{
+                  backgroundColor: GLASS,
+                  borderRadius: 18,
+                  padding: 16,
+                  marginBottom: 8,
+                  display: 'flex',
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  border: `1px solid ${GLASS_BORDER}`,
+                }}
+              >
+                <div>
+                  <p
+                    style={{
+                      color: '#fff',
+                      fontSize: 14,
+                      fontWeight: 700,
+                      margin: 0,
+                    }}
+                  >
+                    {rec.date}
+                  </p>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'row',
+                      gap: 12,
+                      marginTop: 6,
+                    }}
+                  >
+                    <span
+                      style={{
+                        color: '#34D399',
+                        fontSize: 12,
+                        fontWeight: 600,
+                      }}
+                    >
+                      ↓ {fmt(rec.check_in)}
+                    </span>
+                    <span
+                      style={{
+                        color: '#FF4D6A',
+                        fontSize: 12,
+                        fontWeight: 600,
+                      }}
+                    >
+                      ↑ {fmt(rec.check_out)}
+                    </span>
+                  </div>
+                </div>
+                <div
+                  style={{
+                    backgroundColor: rec.hours_worked
+                      ? 'rgba(200,16,46,0.12)'
+                      : GLASS,
+                    paddingLeft: 14,
+                    paddingRight: 14,
+                    paddingTop: 8,
+                    paddingBottom: 8,
+                    borderRadius: 12,
+                    border: `1px solid ${
+                      rec.hours_worked
+                        ? 'rgba(200,16,46,0.2)'
+                        : GLASS_BORDER
+                    }`,
+                  }}
+                >
+                  <span
+                    style={{
+                      color: rec.hours_worked ? RED : '#4A5568',
+                      fontSize: 16,
+                      fontWeight: 800,
+                    }}
+                  >
+                    {rec.hours_worked ? `${rec.hours_worked}h` : '—'}
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
