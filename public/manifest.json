@@ -4,7 +4,7 @@
   "description": "National Basics Company - Employee Self-Service Portal",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0F1A2E",
+  "background_color": "#FFFFFF",
   "theme_color": "#0F1A2E",
   "orientation": "portrait-primary",
   "icons": [
