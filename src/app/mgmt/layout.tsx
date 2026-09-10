@@ -1,9 +1,10 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useTranslation } from 'react-i18next';
-import { ReactNode } from 'react';
+import { ReactNode, useEffect } from 'react';
+import { useAuth } from '@/context/AuthContext';
 
 const tabs = [
   { key: 'dashboard', href: '/mgmt', icon: '📊' },
@@ -14,12 +15,49 @@ const tabs = [
 
 export default function MgmtLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { t } = useTranslation();
+  // isManager is is_superuser || is_manager from the JWT — the same check that
+  // shows the /mgmt link in BottomNav and drives the root redirect in page.tsx.
+  // The backend re-checks every request; this only keeps the manager shell from
+  // rendering for people who should never see it.
+  const { loading, isLoggedIn, isManager } = useAuth();
+  const authorized = !loading && isLoggedIn && isManager;
+
+  useEffect(() => {
+    if (loading) return;
+    if (!isLoggedIn) {
+      router.replace('/login');
+    } else if (!isManager) {
+      router.replace('/home');
+    }
+  }, [loading, isLoggedIn, isManager, router]);
 
   const isActive = (href: string) => {
     if (href === '/mgmt') return pathname === '/mgmt';
     return pathname.startsWith(href);
   };
+
+  if (!authorized) {
+    return (
+      <div style={{
+        minHeight: '100dvh',
+        background: '#F8FAFC',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}>
+        <div style={{
+          width: 36,
+          height: 36,
+          border: '3px solid #E2E8F0',
+          borderTopColor: '#16A34A',
+          borderRadius: '50%',
+          animation: 'spin 0.8s linear infinite',
+        }} />
+      </div>
+    );
+  }
 
   return (
     <div className="mgmt-page" style={{ paddingBottom: 80 }}>

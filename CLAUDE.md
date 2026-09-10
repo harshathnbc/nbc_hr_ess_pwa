@@ -55,11 +55,11 @@ enabled server-side, that means the second refresh in a session can fail and log
 The JWT is decoded with `atob` and its `exp` is never checked client-side, so an expired token
 shows the shell until the first 401.
 
-**Manager access is hidden, not guarded.** `is_manager` / `is_superuser` from the decoded JWT
-control whether the `/mgmt` link appears in `BottomNav` and `more/`, and the root redirect. But
-`src/app/mgmt/layout.tsx` checks neither a token nor the claim — unlike `(app)/layout.tsx` — so
-anyone can load `/mgmt*` and only the API's 401 stops data appearing. Add the guard before
-building more manager screens; treat it as the top open item in this repo.
+**Manager access is gated in `src/app/mgmt/layout.tsx`** (since 2026-09-10): no token → `/login`,
+token without `is_manager` / `is_superuser` → `/home`, otherwise the shell renders. The same
+claim check drives the `/mgmt` link in `BottomNav` and `more/`, and the root redirect in
+`page.tsx`. Keep the four in step. As everywhere in this app, the client-side check is a
+convenience — the backend re-checks every request.
 
 **Screens intentionally mirror the old React Native app** — the design was aligned deliberately so
 employees migrating from the Expo app see the same thing. Check `../nbc_hr_ess_mobile/app/` before
