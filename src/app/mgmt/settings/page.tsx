@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslation } from 'react-i18next';
-import api, { TOKEN_KEY, REFRESH_KEY } from '@/utils/api';
+import api from '@/utils/api';
+import { useAuth } from '@/context/AuthContext';
 
 /* ── MenuItem Component ─────────────────────────────────────── */
 function MenuItem({ emoji, label, subtitle, color = '#4F46E5', onPress, danger }: {
@@ -48,6 +49,7 @@ interface UserData {
 export default function MgmtSettings() {
   const router = useRouter();
   const { t, i18n } = useTranslation();
+  const { logout: signOut } = useAuth();
   const [user, setUser] = useState<UserData | null>(null);
   const lang = i18n.language || 'en';
 
@@ -64,9 +66,7 @@ export default function MgmtSettings() {
 
   const logout = () => {
     if (window.confirm(`${t('common.signOut')}\n\n${t('common.signOutConfirm')}`)) {
-      localStorage.removeItem(TOKEN_KEY);
-      localStorage.removeItem(REFRESH_KEY);
-      router.replace('/login');
+      void signOut();
     }
   };
 

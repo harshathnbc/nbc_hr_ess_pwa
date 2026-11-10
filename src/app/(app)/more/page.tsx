@@ -2,7 +2,7 @@
 import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslation } from 'react-i18next';
-import api, { TOKEN_KEY, REFRESH_KEY } from '@/utils/api';
+import api from '@/utils/api';
 import { useAuth } from '@/context/AuthContext';
 
 const NAVY = '#1B2A4A';
@@ -108,7 +108,7 @@ function MenuItem({
 export default function MorePage() {
   const router = useRouter();
   const { t, i18n } = useTranslation();
-  const { user, isManager, logout } = useAuth();
+  const { user, isManager, login, logout } = useAuth();
 
   const lang = i18n.language || 'en';
   const setLang = (l: string) => {
@@ -127,9 +127,7 @@ export default function MorePage() {
 
   const handleLogout = () => {
     if (window.confirm(`${t('common.signOut')}\n\n${t('common.signOutConfirm')}`)) {
-      localStorage.removeItem(TOKEN_KEY);
-      localStorage.removeItem(REFRESH_KEY);
-      router.replace('/login');
+      void logout();
     }
   };
 
@@ -165,10 +163,15 @@ export default function MorePage() {
 
     setPwdLoading(true);
     try {
-      await api.post('/users/api/v1/change-password/', {
+      const { data } = await api.post('/users/api/v1/change-password/', {
         old_password: currentPwd,
         new_password: newPwd,
       });
+      // A password change revokes every token of the account, and the backend answers with a
+      // fresh pair for this device. Store it, or the next request signs the user out. login()
+      // only stores the tokens and sets the same user from them. (An older backend returns no
+      // tokens; then there is nothing to store.)
+      if (data?.access && data?.refresh) login(data.access, data.refresh);
       setPwdSuccess(true);
       setCurrentPwd('');
       setNewPwd('');

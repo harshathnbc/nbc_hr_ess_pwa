@@ -31,7 +31,7 @@ src/
   components/BottomNav.tsx
   context/AuthContext.tsx
   i18n/             — i18next, locales/en.json + ar.json
-  utils/api.ts
+  utils/            — api.ts (axios + refresh), apiBase.ts (API URL constant), logError.ts
 public/
   manifest.json  sw.js  icons/
 ```
@@ -41,19 +41,29 @@ files and no tests.
 
 ## Conventions
 
-**The API base URL is hardcoded** to `https://api.nbcerp.com` in `src/utils/api.ts` — this app does
-not use an env var. To point at a local backend you must edit that constant (and remember not to
-commit it). **`src/app/login/page.tsx` re-hardcodes the same URL** with a bare `axios.post` to
-`/api/token/`, so editing only `api.ts` still logs you in against production. Change both, or
-better, make login import `BASE_URL` from `api.ts`.
+**The API base URL is a constant**, `https://api.nbcerp.com`, in `src/utils/apiBase.ts` — this app
+does not use an env var. `api.ts`, the login page and `next.config.ts` (for the CSP) all import it,
+so to point at a local backend you edit that one line (and remember not to commit it).
 
 **Token keys are `nbc_access_token` / `nbc_refresh_token`** in `localStorage` — deliberately
 different names from the web portal, which uses `nbc_access` / `nbc_refresh`. Don't copy auth code
-between the two repos without renaming. The refresh interceptor stores only the new `access`
-token and discards the rotated `refresh` token the backend returns; with rotation + blacklist
-enabled server-side, that means the second refresh in a session can fail and log the user out.
+between the two repos without renaming. The refresh interceptor stores the rotated refresh token,
+runs one refresh at a time (shared promise in a tab, `navigator.locks` across tabs), and ends the
+session on a 400/401/403 from the refresh endpoint, or when a request retried after a refresh is
+refused again with the stored token. A refresh that completes after sign-out is revoked, never
+stored. The change-password response carries a fresh token pair, which More stores through
+`login()`. **`AuthContext.logout()` is the only
+sign-out path** (More, Settings, and a rejected refresh via `setSessionEndedHandler`): it
+blacklists the refresh token (`POST /api/token/blacklist/`, best effort, 2 s cap), clears the
+tokens, resets the context, deletes every Cache Storage cache and reloads `/login`.
 The JWT is decoded with `atob` and its `exp` is never checked client-side, so an expired token
-shows the shell until the first 401.
+shows the shell until the first 401. Log failures with `utils/logError.ts`, never the raw error:
+axios errors carry the `Authorization` header.
+
+**Security headers and the CSP are set in `next.config.ts`.** Scripts, styles and fonts are
+`'self'` only (Inter is self-hosted through `next/font` in `layout.tsx`, exposed as
+`--font-inter`); network and image requests are `'self'` plus the API origin. Anything loaded from
+another origin must be added there.
 
 **Manager access is gated in `src/app/mgmt/layout.tsx`** (since 2026-09-10): no token → `/login`,
 token without `is_manager` / `is_superuser` → `/home`, otherwise the shell renders. The same
@@ -76,9 +86,11 @@ change, and the `[dir="rtl"]` rule in `globals.css` is dead. Switching language 
 only. The legacy mobile app's `utils/LanguageContext.js` shows the intended behaviour.
 
 **Service worker** is `public/sw.js`, registered by `src/app/sw-register.tsx`. Cache name is
-`nbc-ess-v2`; strategy is network-first for navigations (falling back to `/offline`), bypass for
-anything containing `/api/`, cache-first for everything else, with `skipWaiting()` +
-`clients.claim()` on activate. Bumping `CACHE_NAME` is the only invalidation lever, and
+`nbc-ess-v3`. Cache-first applies only to same-origin `/_next/static/`, `/icons/`, `/manifest.json`
+and `/offline`; everything else (HTML, RSC payloads, API, media, other origins) is network-only and
+never stored. Navigations go to the network and fall back to the cached `/offline`. Activate
+deletes every other cache, then `clients.claim()`; `next.config.ts` serves `/sw.js` with
+`no-cache` so updates reach installed apps. Bumping `CACHE_NAME` is the only invalidation lever, and
 `sw-register.tsx` never prompts the user to reload. Changing cached assets requires thinking about
 upgrade behaviour for already-installed users — a stale SW will keep serving the old bundle. App
 icons live in `public/icons/` and have been re-cut several times; keep them square (192 and 512)

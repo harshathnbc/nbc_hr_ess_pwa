@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import api from '@/utils/api';
+import { logError } from '@/utils/logError';
 
 const PRIMARY = '#16A34A';
 const BG = '#F1F5F9';
@@ -273,7 +274,7 @@ export default function MgmtDashboard() {
       const r = await api.get('/hr/api/v1/management/summary/');
       setData(r.data);
       setLastUpdated(new Date());
-    } catch (e) { console.warn('Dashboard error', e); }
+    } catch (e) { logError(e, 'Dashboard error'); }
     finally { setLoading(false); }
   }, []);
 

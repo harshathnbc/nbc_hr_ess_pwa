@@ -24,6 +24,8 @@
     "signingIn": "Signing in...",
     "invalidCreds": "Invalid employee ID or password",
     "failed": "Login failed",
+    "locked": "Too many failed attempts. Please wait 30 minutes, then try again.",
+    "tooMany": "Too many sign-in attempts from this network. Please wait a minute and try again.",
     "contactHr": "Contact HR if you don't have credentials"
   },
   "tabs": {

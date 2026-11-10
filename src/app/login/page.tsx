@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/context/AuthContext';
 import { Eye, EyeOff, Loader2, UserCircle, Lock } from 'lucide-react';
 import axios from 'axios';
+import { BASE_URL } from '@/utils/api';
 
 /* ─── colour tokens ─── */
 const C = {
@@ -89,7 +90,8 @@ export default function LoginPage() {
     setError('');
 
     try {
-      const { data } = await axios.post('https://api.nbcerp.com/api/token/', {
+      // Bare axios, not `api`: a 401 for wrong credentials must not trigger the refresh logic.
+      const { data } = await axios.post(`${BASE_URL}/api/token/`, {
         username: username.trim(),
         password,
       });
@@ -101,11 +103,14 @@ export default function LoginPage() {
       const mgr    = !!(claims?.is_superuser || claims?.is_manager);
       router.replace(mgr ? '/mgmt' : '/home');
     } catch (err: unknown) {
-      const axErr = err as { response?: { status?: number } };
+      const response = (err as { response?: { status?: number; data?: { code?: string } } })?.response;
       setError(
-        axErr?.response?.status === 401
+        response?.status === 401
           ? t('login.invalidCreds')
-          : t('login.failed')
+          : response?.status === 429
+            ? // Locked out after repeated failures, or the per-network login throttle.
+              t(response.data?.code === 'login_locked' ? 'login.locked' : 'login.tooMany')
+            : t('login.failed')
       );
       setShaking(true);
       setTimeout(() => setShaking(false), 500);
@@ -190,7 +195,7 @@ export default function LoginPage() {
       fontWeight: 800,
       color: C.RED,
       letterSpacing: '-1px',
-      fontFamily: "'Inter', 'SF Pro Display', system-ui, sans-serif",
+      fontFamily: "var(--font-inter), 'SF Pro Display', system-ui, sans-serif",
     },
     brandName: {
       fontSize: '22px',
@@ -237,7 +242,7 @@ export default function LoginPage() {
       outline: 'none',
       transition: 'border-color 0.2s, background 0.2s',
       boxSizing: 'border-box',
-      fontFamily: "'Inter', system-ui, sans-serif",
+      fontFamily: "var(--font-inter), system-ui, sans-serif",
     },
     eyeBtn: {
       position: 'absolute',
@@ -287,7 +292,7 @@ export default function LoginPage() {
       transition: 'transform 0.15s, box-shadow 0.2s',
       boxShadow: '0 4px 20px rgba(200,16,46,0.30)',
       marginTop: '4px',
-      fontFamily: "'Inter', system-ui, sans-serif",
+      fontFamily: "var(--font-inter), system-ui, sans-serif",
       opacity: loading ? 0.85 : 1,
     },
 

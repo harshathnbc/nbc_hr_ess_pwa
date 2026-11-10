@@ -1,6 +1,6 @@
 'use client';
-import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
-import { TOKEN_KEY, REFRESH_KEY } from '@/utils/api';
+import { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
+import { TOKEN_KEY, REFRESH_KEY, blacklistRefreshToken, setSessionEndedHandler } from '@/utils/api';
 
 interface AuthUser {
   employee_id?: number;
@@ -17,13 +17,25 @@ interface AuthContextType {
   isManager: boolean;
   loading: boolean;
   login: (access: string, refresh: string) => void;
-  logout: () => void;
+  /** The only way to sign out. Resolves just before the page navigates to /login. */
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null, isLoggedIn: false, isManager: false, loading: true,
-  login: () => {}, logout: () => {},
+  login: () => {}, logout: async () => {},
 });
+
+/** Delete every Cache Storage cache (the service worker's). Best effort. */
+async function clearCacheStorage(): Promise<void> {
+  if (typeof caches === 'undefined') return;
+  try {
+    const keys = await caches.keys();
+    await Promise.all(keys.map((key) => caches.delete(key)));
+  } catch {
+    /* Cache Storage unavailable */
+  }
+}
 
 function decodeJWT(token: string): Record<string, unknown> | null {
   try {
@@ -65,12 +77,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(u);
   }, [extractUser]);
 
-  const logout = useCallback(() => {
+  // Every sign-out goes through here: the More and Settings screens, and a session the backend
+  // rejects (registered with the API client below).
+  const loggingOut = useRef(false);
+  const logout = useCallback(async () => {
+    if (loggingOut.current) return;
+    loggingOut.current = true;
+    const refresh = localStorage.getItem(REFRESH_KEY);
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(REFRESH_KEY);
     setUser(null);
-    window.location.href = '/login';
+    // Revoke the refresh token on the backend (bounded by a short timeout) and drop the
+    // service worker's caches, then a full page load of /login clears all in-memory state.
+    await Promise.all([refresh ? blacklistRefreshToken(refresh) : undefined, clearCacheStorage()]);
+    window.location.replace('/login');
   }, []);
+
+  useEffect(() => {
+    setSessionEndedHandler(() => void logout());
+    return () => setSessionEndedHandler(null);
+  }, [logout]);
 
   const isManager = !!(user?.is_superuser || user?.is_manager);
 

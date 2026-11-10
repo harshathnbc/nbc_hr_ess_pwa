@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import api, { TOKEN_KEY } from '@/utils/api';
+import api from '@/utils/api';
 import { useAuth } from '@/context/AuthContext';
 
 const NAVY = '#1B2A4A';
@@ -44,17 +44,13 @@ export default function PayslipPage() {
     }
     setLoading(true);
     try {
-      const token = localStorage.getItem(TOKEN_KEY);
-      const baseURL = api.defaults.baseURL;
-      const url = `${baseURL}/hr/api/v1/employees/${employeeId}/payslip/?month=${month}&year=${year}`;
-
-      // For PWA, open in new tab with auth header via fetch + blob
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
+      // Through the api client, so an expired access token is refreshed instead of failing.
+      // Opened in a new tab as a blob, because the request needs the auth header.
+      const res = await api.get<Blob>(`/hr/api/v1/employees/${employeeId}/payslip/`, {
+        params: { month, year },
+        responseType: 'blob',
       });
-      if (!res.ok) throw new Error(`Status ${res.status}`);
-      const blob = await res.blob();
-      const blobUrl = URL.createObjectURL(blob);
+      const blobUrl = URL.createObjectURL(res.data);
       window.open(blobUrl, '_blank');
       // Clean up after a delay
       setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);

@@ -1,7 +1,12 @@
 import type { Metadata, Viewport } from 'next';
+import { Inter } from 'next/font/google';
 import './globals.css';
 import Providers from './providers';
 import SwRegister from './sw-register';
+
+// Downloaded at build time and served from this origin: no runtime requests to Google.
+// A variable font, so every weight the screens use (400–900) is included.
+const inter = Inter({ subsets: ['latin'], display: 'swap', variable: '--font-inter' });
 
 export const metadata: Metadata = {
   title: 'NBC ESS - Employee Self-Service',
@@ -30,7 +35,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={inter.variable}>
       <head>
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <link rel="icon" type="image/png" href="/favicon.png?v=2" />

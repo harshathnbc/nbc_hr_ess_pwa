@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import api from '@/utils/api';
+import { logError } from '@/utils/logError';
 
 const PRIMARY = '#D97706';
 const BG = '#F1F5F9';
@@ -104,7 +105,7 @@ export default function AssetsScreen() {
       const data = r.data.results || r.data || [];
       setAssets(data);
       setTotalCount(data.length);
-    } catch (e) { console.warn(e); }
+    } catch (e) { logError(e); }
     finally { setLoading(false); }
   }, []);
 
@@ -137,7 +138,7 @@ export default function AssetsScreen() {
       } catch { /* permission denied */ }
 
       setEmpModal({ ...r.data, _currentAssignment: currentAssignment });
-    } catch (e) { console.warn(e); }
+    } catch (e) { logError(e); }
     finally { setEmpLoading(false); }
   };
 

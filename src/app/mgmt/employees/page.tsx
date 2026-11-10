@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import api from '@/utils/api';
+import { logError } from '@/utils/logError';
 
 const PRIMARY = '#4F46E5';
 const BG = '#F1F5F9';
@@ -118,7 +119,7 @@ export default function EmployeesScreen() {
       setEmployees(enriched);
       setTotalCount(r.data.count || 0);
       setPage(p);
-    } catch (e) { console.warn(e); }
+    } catch (e) { logError(e); }
     finally { setLoading(false); }
   }, []);
 
@@ -175,7 +176,7 @@ export default function EmployeesScreen() {
         _currentAssignment: currentAssignment,
         _activeAssets: activeAssets,
       });
-    } catch (e) { console.warn('Employee detail error:', e); }
+    } catch (e) { logError(e, 'Employee detail error'); }
     finally { setDetailLoading(false); }
   };
 
@@ -184,7 +185,7 @@ export default function EmployeesScreen() {
     try {
       const r = await api.get(`/assets/api/v1/equipment/${assetId}/`);
       setAssetModal(r.data);
-    } catch (e) { console.warn(e); }
+    } catch (e) { logError(e); }
   };
 
   /* ── Pagination Bar ── */

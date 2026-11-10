@@ -1,4 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+/* Inter is self-hosted through next/font in layout.tsx (exposed as --font-inter), so the
+   browser never calls Google and the Content-Security-Policy can stay 'self'. */
 
 :root {
   --navy-deep: #0F1A2E;
@@ -33,7 +34,7 @@
 }
 
 html, body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background-color: var(--navy-deep);
   color: #fff;
   -webkit-font-smoothing: antialiased;
